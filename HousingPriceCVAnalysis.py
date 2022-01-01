@@ -125,6 +125,8 @@ for alpha in alphaSearch:
 
 plt.figure()
 plt.plot(alphaSearch, scores, '.-')
+plt.xlabel('alpha')
+plt.ylabel('score')
 plt.show()
 
 lasso = Lasso(alpha = 0.001)
