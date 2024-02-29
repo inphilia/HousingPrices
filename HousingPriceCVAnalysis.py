@@ -1,20 +1,30 @@
 # -*- coding: utf-8 -*-
 """
 Cross validation of regression models on housing data.
-	xgboost
+	ols
+    lasso
+    xgboost
 	nearest neighbor
-	SVR
 
 Created on Tue Dec 24 18:49:02 2019
 
 @author: inphi
 """
 
+# %% 
+
+!pip install hyperopt
+
+# %% import libraries
+
 import pandas as pd
 import numpy as np
 import matplotlib.pyplot as plt
 import seaborn as sns
 from sklearn.model_selection import cross_val_score
+from sklearn.model_selection import RepeatedKFold
+from sklearn.model_selection import GridSearchCV
+from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
 
 # %% load data
 
@@ -110,36 +120,53 @@ plt.close('all')
 #xtrain = my_imputer.fit_transform(xtrain)
 #xtest = my_imputer.transform(xtest)
 
+
+# %% OLS Regression
+
+from sklearn.linear_model import LinearRegression
+
 # %% LASSO Regression
 
 from sklearn.linear_model import Lasso
-from sklearn.model_selection import cross_validate
 
-alphaSearch = [0, 0.001, 0.005, 0.01, 0.05, 0.1, 0.5, 1]
-
+alpha = [1e-4, 5e-4, 1e-3, 5e-3, 0.005, 0.01, 0.05, 0.1]
 scores = []
-for alpha in alphaSearch:
-    lasso = Lasso(alpha = alpha)
-    lasso.fit(xtrain, ytrain)
+for a in alpha:
+    lasso = Lasso(alpha = a)
     scores.append(cross_val_score(lasso, xtrain, ytrain, cv = 5).mean())
 
 plt.figure()
-plt.plot(alphaSearch, scores, '.-')
+plt.plot(alpha, scores, '.-')
 plt.xlabel('alpha')
 plt.ylabel('score')
+plt.xscale('log')
+plt.title('Lasso Regression')
+plt.grid()
 plt.show()
-
-lasso = Lasso(alpha = 0.001)
-scores = cross_val_score(lasso, xtrain, ytrain, cv = 5)
-print(scores.mean())
 
 
 # %% XGBoost
 
 from xgboost import XGBRegressor
-xgbr = XGBRegressor(n_estimators=1000, learning_rate=0.05)
-scores = cross_val_score(xgbr, xtrain, ytrain, cv = 5)
-print(scores.mean())
+
+xgbr = XGBRegressor(n_estimators=500, learning_rate=0.05)
+max_depth = range(1, 8)
+scores = []
+for md in max_depth:
+    xgbr = XGBRegressor(n_estimators=1000, learning_rate=0.05, max_depth=md)
+    scores.append(cross_val_score(xgbr, xtrain, ytrain, cv = 5).mean())
+
+plt.figure()
+plt.plot(max_depth, scores, '.-')
+plt.xlabel('max_depth')
+plt.ylabel('score')
+plt.title('XGBoost Regression')
+plt.grid()
+plt.show()
+
+# %% LightGBM
+
+from lightgbm import LGBMRegressor
 
 # %% Nearest neighbor regression
 
@@ -154,6 +181,8 @@ for n in nNeighborSpace:
 plt.figure()
 plt.plot(nNeighborSpace, scores)
 plt.title('NN Uniform')
+plt.xlabel('Neighbors')
+plt.ylabel('Score')
 plt.grid()
 plt.show()
 
@@ -173,37 +202,58 @@ knnr = KNeighborsRegressor(n_neighbors=7, weights = 'distance')
 score = cross_val_score(knnr, xtrain, ytrain, cv = 5)
 print(score.mean())
 
+# %% Run all models
 
-# %% SVR
-#coef0, as p-> inf weirdness around 1, you can add 1-min <x,y>, so no values are smaller than 1 . If you really feel the need for tuning this parameter, I would suggest search in the range of [min(1-min , 0),max(<x,y>)], where max is computed through all the training set.
+cv_fold_num = 5
 
-from sklearn.svm import SVR
-svr_rbf = SVR(kernel='rbf', C=100, gamma=.1, epsilon=.1)
-svr_lin = SVR(kernel='linear', C=100, gamma='auto')
-svr_poly = SVR(kernel='poly', C=100, gamma='auto', degree=3, epsilon=.1)
+xgb_grid = {'max_depth': range(2, 10),
+            #'gamma': range(1, 9),
+            #'min_child_weight' : range(10),
+            'learning_rate': [0.01, 0.05, 0.1, 0.2],
+            'n_estimators': range(60, 220, 40)}
+lightgbm_grid = {'max_depth': range(2, 10),
+                'learning_rate': [0.01, 0.05, 0.1, 0.2]}
+knn_grid = {'n_neighbors': range(2, 20),
+            'weights': ['uniform', 'distance']}
+models = [{'name': 'Linear Regression', 'model': LinearRegression(), 'grid': None},
+          {'name': 'Lasso', 'model': Lasso(), 'grid': dict(alpha = [1e-4, 5e-4, 1e-3, 5e-3, 0.005, 0.01, 0.05, 0.1])},
+          {'name': 'XGBoost', 'model': XGBRegressor(), 'grid': xgb_grid},
+          {'name': 'LightGBM', 'model': LGBMRegressor(), 'grid': lightgbm_grid},
+          {'name': 'k Nearest Neighbor', 'model': KNeighborsRegressor(), 'grid': knn_grid}]
 
-score = cross_val_score(svr_rbf, xtrain, ytrain, cv = 5).mean()
-print('SVR RBF: ' + str(score))
-score = cross_val_score(svr_lin, xtrain, ytrain, cv = 5).mean()
-print('SVR Lin: ' + str(score))
-score = cross_val_score(svr_poly, xtrain, ytrain, cv = 5).mean()
-print('SVR Poly: ' + str(score))
+def run_models(models, xtrain, ytrain, cv_fold_num):
+    best_models = []
+    for model in models:
+        try:
+            gridSearch = GridSearchCV(estimator=model['model'], param_grid=model['grid'], n_jobs=-1,
+                cv=cv_fold_num, scoring="neg_mean_squared_error")
+            searchResults = gridSearch.fit(xtrain, ytrain)
+            best_model = searchResults.best_estimator_
+        except TypeError:
+            best_model = model['model']
+            best_model.fit(xtrain, ytrain)
+        
+        #predictions
+        ypred = best_model.predict(xtrain)
+        plt.figure()
+        plt.plot(ytrain, '.')
+        plt.plot(ypred, '.')
+        plt.xlabel('Home #')
+        plt.ylabel('Price')
+        plt.title(model['name'])
+        plt.legend(['Actual', 'Predicted'])
+        plt.show()
 
+        #scores
+        score = best_model.score(xtrain, ytrain)
+        print(model['name'], 'score:', score)
+        best_models.append(best_model)
 
-# %% 
+        if model['grid'] is not None:
+            print(model['name'], 'best parameters:', searchResults.best_params_)
 
-regressionModel = [xgbr, knnr, svr_rbf, svr_lin, svr_poly]
-scores = [cross_val_score(r, xtrain, ytrain, cv = 5).mean() for r in regressionModel]
+    return best_models
 
+best_models = run_models(models, xtrain, ytrain, cv_fold_num)
 
-
-
-
-
-
-
-
-
-
-
-
+# %%
