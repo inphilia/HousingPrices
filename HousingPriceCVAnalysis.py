@@ -13,7 +13,7 @@ Created on Tue Dec 24 18:49:02 2019
 
 # %% 
 
-!pip install hyperopt
+# !pip install hyperopt
 
 # %% import libraries
 
@@ -24,7 +24,7 @@ import seaborn as sns
 from sklearn.model_selection import cross_val_score
 from sklearn.model_selection import RepeatedKFold
 from sklearn.model_selection import GridSearchCV
-from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
+# from hyperopt import fmin, tpe, hp, STATUS_OK, Trials
 
 # %% load data
 
