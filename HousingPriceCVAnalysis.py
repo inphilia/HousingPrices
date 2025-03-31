@@ -52,7 +52,7 @@ train = train.drop(train[train['Id'] == 524].index)
 #applying log transformation
 from scipy.stats import norm
 from scipy import stats
-sns.distplot(train['SalePrice'], fit=norm);
+sns.distplot(train['SalePrice'], fit=norm)
 fig = plt.figure()
 res = stats.probplot(train['SalePrice'], plot=plt)
 train['SalePrice'] = np.log(train['SalePrice'])
@@ -103,31 +103,11 @@ xscaler = DummyScaler()
 xscaler.DummyFit(xtrain)
 xtrain = xscaler.transform(xtrain)
 
-#xscaler = StandardScaler()
-#xscaler.fit(xtrain)
-#xtrain = xscaler.transform(xtrain)
-#yscaler = StandardScaler()
-#yscaler.fit(np.matrix(ytrain).T)
-#ytrain = yscaler.transform(np.matrix(ytrain).T).flatten()
-
-#train = StandardScaler().fit_transform(train)
-
-plt.close('all')
-
-##don't need imputation
-#from sklearn.preprocessing import Imputer
-#my_imputer = Imputer()
-#xtrain = my_imputer.fit_transform(xtrain)
-#xtest = my_imputer.transform(xtest)
-
-
 # %% OLS Regression
 
-from sklearn.linear_model import LinearRegression
 
 # %% LASSO Regression
 
-from sklearn.linear_model import Lasso
 
 alpha = [1e-4, 5e-4, 1e-3, 5e-3, 0.005, 0.01, 0.05, 0.1]
 scores = []
@@ -147,7 +127,6 @@ plt.show()
 
 # %% XGBoost
 
-from xgboost import XGBRegressor
 
 xgbr = XGBRegressor(n_estimators=500, learning_rate=0.05)
 max_depth = range(1, 8)
@@ -166,11 +145,23 @@ plt.show()
 
 # %% LightGBM
 
-from lightgbm import LGBMRegressor
+max_depth = range(1, 8)
+scores = []
+for md in max_depth:
+    lgbm = LGBMRegressor(n_estimators=1000, learning_rate=0.05, max_depth=md)
+    scores.append(cross_val_score(lgbm, xtrain, ytrain, cv = 5).mean())
+
+plt.figure()
+plt.plot(max_depth, scores, '.-')
+plt.xlabel('max_depth')
+plt.ylabel('score')
+plt.title('LightGBM Regression')
+plt.grid()
+plt.show()
+
 
 # %% Nearest neighbor regression
 
-from sklearn.neighbors import KNeighborsRegressor
 knnr = []
 nNeighborSpace = np.arange(1, 20, dtype = int)
 scores = []
@@ -202,7 +193,7 @@ knnr = KNeighborsRegressor(n_neighbors=7, weights = 'distance')
 score = cross_val_score(knnr, xtrain, ytrain, cv = 5)
 print(score.mean())
 
-# %% Run all models
+# %% Optimize models
 
 cv_fold_num = 5
 
@@ -221,20 +212,28 @@ models = [{'name': 'Linear Regression', 'model': LinearRegression(), 'grid': Non
           {'name': 'LightGBM', 'model': LGBMRegressor(), 'grid': lightgbm_grid},
           {'name': 'k Nearest Neighbor', 'model': KNeighborsRegressor(), 'grid': knn_grid}]
 
-def run_models(models, xtrain, ytrain, cv_fold_num):
-    best_models = []
+def optimize_models(models, xtrain, ytrain, cv_fold_num):
     for model in models:
         try:
             gridSearch = GridSearchCV(estimator=model['model'], param_grid=model['grid'], n_jobs=-1,
                 cv=cv_fold_num, scoring="neg_mean_squared_error")
             searchResults = gridSearch.fit(xtrain, ytrain)
             best_model = searchResults.best_estimator_
+            print(model['name'], 'best parameters:', searchResults.best_params_)
         except TypeError:
             best_model = model['model']
             best_model.fit(xtrain, ytrain)
-        
+        model['best'] = best_model
+    return models
+
+best_models = optimize_models(models, xtrain, ytrain, cv_fold_num)
+
+# %% run models
+def run_models(models, xtest, ytest) -> list:
+    scores = []
+    for model in models:
         #predictions
-        ypred = best_model.predict(xtrain)
+        ypred = model['best'].predict(xtrain)
         plt.figure()
         plt.plot(ytrain, '.')
         plt.plot(ypred, '.')
@@ -245,15 +244,11 @@ def run_models(models, xtrain, ytrain, cv_fold_num):
         plt.show()
 
         #scores
-        score = best_model.score(xtrain, ytrain)
-        print(model['name'], 'score:', score)
-        best_models.append(best_model)
+        score = model['best'].score(xtest, ytest)
+        print(model['name'], 'score:', f'{score:.4f}')
+        scores.append(score)
+    return scores
 
-        if model['grid'] is not None:
-            print(model['name'], 'best parameters:', searchResults.best_params_)
-
-    return best_models
-
-best_models = run_models(models, xtrain, ytrain, cv_fold_num)
+scores = run_models(models, xtest, ytest)
 
 # %%

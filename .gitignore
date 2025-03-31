@@ -42,3 +42,6 @@ gmaps/G-MAPS-EXTRACTOR-v2.2.26-Chrome/popup.html
 gmaps/G-MAPS-EXTRACTOR-v2.2.26-Chrome/popup.js
 gmaps/G-MAPS-EXTRACTOR-v2.2.26-Chrome/rsScript.js
 gmaps/G-MAPS-EXTRACTOR-v2.2.26-Chrome/service-worker.js
+BTC-USD.csv
+*.png
+btcusd_1-min_data.csv
